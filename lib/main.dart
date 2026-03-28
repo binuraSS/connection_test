@@ -1,103 +1,125 @@
 import 'package:flutter/material.dart';
+import 'package:camera/camera.dart';
 
-void main() => runApp(const TaskerApp());
+List<CameraDescription> _availableCameras = [];
 
-class TaskerApp extends StatelessWidget {
-  const TaskerApp({super.key});
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  try {
+    _availableCameras = await availableCameras();
+  } on CameraException catch (e) {
+    debugPrint('Camera Error: ${e.description}');
+  }
+  runApp(const InstagramVisionApp());
+}
+
+class InstagramVisionApp extends StatelessWidget {
+  const InstagramVisionApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
-      home: const TaskListScreen(),
+      theme: ThemeData(brightness: Brightness.dark),
+      home: const CameraPortal(),
     );
   }
 }
 
-class Task {
-  String title;
-  bool isHighPriority;
-  Task({required this.title, this.isHighPriority = false});
-}
-
-class TaskListScreen extends StatefulWidget {
-  const TaskListScreen({super.key});
+class CameraPortal extends StatefulWidget {
+  const CameraPortal({super.key});
 
   @override
-  State<TaskListScreen> createState() => _TaskListScreenState();
+  State<CameraPortal> createState() => _CameraPortalState();
 }
 
-class _TaskListScreenState extends State<TaskListScreen> {
-  final List<Task> _tasks = [];
-  final TextEditingController _controller = TextEditingController();
-  bool _isHighPriority = false;
+class _CameraPortalState extends State<CameraPortal> {
+  CameraController? _controller;
 
-  void _addTask() {
-    if (_controller.text.isEmpty) return;
-    setState(() {
-      _tasks.insert(0, Task(title: _controller.text, isHighPriority: _isHighPriority));
-      _controller.clear();
-      _isHighPriority = false; // Reset toggle
-    });
+  @override
+  void initState() {
+    super.initState();
+    _initCamera();
+  }
+
+  Future<void> _initCamera() async {
+    if (_availableCameras.isEmpty) return;
+
+    // Use ResolutionPreset.high for that crisp Instagram quality
+    _controller = CameraController(
+      _availableCameras[0],
+      ResolutionPreset.high,
+      enableAudio: false,
+      imageFormatGroup: ImageFormatGroup.bgra8888,
+    );
+
+    try {
+      await _controller!.initialize();
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint("Camera init failed: $e");
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_controller == null || !_controller!.value.isInitialized) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Priority Tasker'), centerTitle: true),
-      body: Column(
+      backgroundColor: Colors.black,
+      body: Stack(
         children: [
-          // Input Section
-          Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    decoration: const InputDecoration(
-                      hintText: 'Enter task name...',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  icon: Icon(_isHighPriority ? Icons.priority_high : Icons.low_priority),
-                  color: _isHighPriority ? Colors.red : Colors.grey,
-                  onPressed: () => setState(() => _isHighPriority = !_isHighPriority),
-                ),
-                ElevatedButton(onPressed: _addTask, child: const Icon(Icons.add)),
-              ],
+          // 1. FULL SCREEN INSTAGRAM-STYLE PREVIEW
+          // We wrap the preview in a SizedBox that fills the screen
+          SizedBox.expand(
+            child: FittedBox(
+              fit: BoxFit.cover, // This crops the 16:9 feed to fit your 19.5:9 screen
+              child: SizedBox(
+                width: _controller!.value.previewSize!.height,
+                height: _controller!.value.previewSize!.width,
+                child: CameraPreview(_controller!),
+              ),
             ),
           ),
-          
-          // List Section
-          Expanded(
-            child: _tasks.isEmpty 
-              ? const Center(child: Text("No tasks yet! Add one above."))
-              : ListView.builder(
-                  itemCount: _tasks.length,
-                  itemBuilder: (context, index) {
-                    final task = _tasks[index];
-                    return Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                      color: task.isHighPriority ? Colors.red[50] : Colors.white,
-                      child: ListTile(
-                        leading: Icon(
-                          task.isHighPriority ? Icons.warning : Icons.task_alt,
-                          color: task.isHighPriority ? Colors.red : Colors.indigo,
-                        ),
-                        title: Text(task.title),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline),
-                          onPressed: () => setState(() => _tasks.removeAt(index)),
-                        ),
-                      ),
-                    );
-                  },
-                ),
+
+          // 2. SEMI-TRANSPARENT OVERLAYS (Like Story UI)
+          Positioned(
+            top: 60,
+            left: 20,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black38,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Row(
+                children: [
+                  Icon(Icons.flash_on, color: Colors.white, size: 18),
+                  SizedBox(width: 10),
+                  Text("16:9 aspect ratio", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ),
+          ),
+
+          // 3. YOLO FOCUS BOX
+          Center(
+            child: Container(
+              width: 280,
+              height: 280,
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.white.withOpacity(0.5), width: 1.5),
+                borderRadius: BorderRadius.circular(20),
+              ),
+            ),
           ),
         ],
       ),
